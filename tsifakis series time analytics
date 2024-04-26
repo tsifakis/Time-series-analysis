@@ -1,0 +1,323 @@
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+import random
+import numpy as np
+import pandas as pd
+import pmdarima as pm
+import tensorflow as tf
+import statsmodels.api as sm
+import matplotlib.pyplot as plt
+
+from sklearn.model_selection import train_test_split
+from sklearn.metrics         import mean_absolute_error
+from sklearn.metrics         import mean_absolute_percentage_error
+from sklearn.model_selection import TimeSeriesSplit
+from sklearn.metrics         import r2_score
+from sklearn.metrics         import median_absolute_error
+from sklearn.preprocessing   import StandardScaler
+from sklearn.linear_model    import LinearRegression
+from sklearn.metrics         import root_mean_squared_error
+
+
+from statsmodels.tsa.stattools     import adfuller, kpss
+from statsmodels.stats.diagnostic  import acorr_ljungbox
+from statsmodels.tsa.seasonal      import seasonal_decompose
+from statsmodels.tsa.api           import VAR
+from statsmodels.graphics.tsaplots import plot_acf
+from statsmodels.tsa.stattools     import acf
+from statsmodels.tsa.stattools     import pacf
+from statsmodels.graphics.tsaplots import plot_pacf
+from statsmodels.tsa.stattools     import ccf
+from statsmodels.tsa.statespace.sarimax  import SARIMAX
+from statsmodels.tsa.vector_ar.var_model import VAR
+from statsmodels.tsa.statespace.sarimax  import SARIMAX
+from statsmodels.tsa.api                 import VAR
+
+from math import sqrt
+from pmdarima import auto_arima
+from colorama import Fore, Style
+
+seed_value = 1
+tf.random.set_seed(seed_value)
+np.random.seed(seed_value)
+np.set_printoptions(precision=2, suppress=True)
+
+dataset_1 = np.array([0.04, 0.1, 0.05, 0.1, 0.07, 0.01, 0.09, 0.04, 0.05, 0.03, 0.05, 0.06, 0.09, 0.1, 0.08, 0.1, 0.09, 0.03, 0.04, 0.07, 0.02, 0.07, 0.05, 0.1, 0.07, 0.01, 0.09, 0.04, 0.05, 0.03, 0.05, 0.06, 0.09, 0.1, 0.08, 0.1, 0.09, 0.03, 0.06, 0.09, 0.09, 0.03, 0.04, 0.07, 0.02, 0.07, 0.05, 0.1, 0.07, 0.01, 0.09, 0.04, 0.05, 0.03, 0.05, 0.06, 0.09, 0.1, 0.08, 0.1,])
+dataset_2 = np.diff(dataset_1)
+
+mean_1 = np.mean(dataset_1)
+variance_1 = np.var(dataset_1)
+min_1 = np.min(dataset_1)
+max_1 = np.max(dataset_1)
+
+mean_2 = np.mean(dataset_2)
+variance_2 = np.var(dataset_2)
+min_2 = np.min(dataset_2)
+max_2 = np.max(dataset_2)
+
+print("Στατιστικά για dataset_1:")
+print(f"Μέσος Όρος: {mean_1:.2f} - Αντικατοπτρίζει την τυπική τιμή της σειράς.")
+print(f"Διακύμανση: {variance_1:.4f} - Μέτρο της διασποράς γύρω από τον μέσο όρο.")
+print(f"Ελάχιστη Τιμή: {min_1:.2f} - Η χαμηλότερη τιμή στη σειρά.")
+print(f"Μέγιστη Τιμή: {max_1:.2f} - Η υψηλότερη τιμή στη σειρά.")
+
+print("\nΣτατιστικά για dataset_2 (πρώτη διαφορά):")
+print(f"Μέσος Όρος: {mean_2:.2f} - Δείχνει τη μέση αλλαγή μεταξύ διαδοχικών τιμών.")
+print(f"Διακύμανση: {variance_2:.4f} - Μέτρο της διασποράς για τις αλλαγές.")
+print(f"Ελάχιστη Τιμή: {min_2:.2f} - Η μικρότερη διαφορά.")
+print(f"Μέγιστη Τιμή: {max_2:.2f} - Η μεγαλύτερη διαφορά.")
+
+adf_result = adfuller(dataset_1)
+print("\nΈλεγχος ADF για dataset_1:")
+print(f"ADF Statistic: {adf_result[0]:.3f} - Μια πολύ αρνητική τιμή υποδηλώνει στασιμότητα.")
+print(f"p-value: {adf_result[1]:.4f} - Μικρότερη τιμή από 0.05 σημαίνει στασιμότητα σε επίπεδο 5%.")
+print("Critical Values:")
+for key, value in adf_result[4].items():
+    print(f'\t{key}: {value:.3f} - Εάν το ADF Statistic είναι μικρότερο, η σειρά είναι στάσιμη σε αυτό το επίπεδο.')
+
+kpss_result = kpss(dataset_1, regression='c')
+print("\nΈλεγχος KPSS για dataset_1:")
+print(f"KPSS Statistic: {kpss_result[0]:.3f} - Χαμηλές τιμές υποδηλώνουν στασιμότητα.")
+print(f"p-value: {kpss_result[1]:.4f} - Μεγάλη τιμή σημαίνει μη απόρριψη της υπόθεσης στασιμότητας.")
+print("Critical Values:")
+for key, value in kpss_result[3].items():
+    print(f'\t{key}: {value:.3f} - Εάν το KPSS Statistic είναι μεγαλύτερο, η σειρά δεν είναι στάσιμη.')
+
+lags = np.arange(1, 20)  # Δοκιμάζουμε από 1 έως 14 lags
+ljung_box_results1 = acorr_ljungbox(dataset_1, lags=lags, return_df=True)
+lags = np.arange(1, 20)  # Δοκιμάζουμε από 1 έως 14 lags
+ljung_box_results2 = acorr_ljungbox(dataset_2, lags=lags, return_df=True)
+
+print("\nΑποτελέσματα Ελέγχου Ljung-Box για dataset_1:")
+print("Lag - Υστέρηση: Επιδεικνύει τον αριθμό των παρατηρήσεων στο παρελθόν που λαμβάνονται υπόψη για τον έλεγχο.")
+print("lb_stat - Στατιστικό Ελέγχου: Μέτρο που υποδηλώνει την συνολική αυτοσυσχέτιση στις υστερήσεις που εξετάζονται.")
+print("lb_pvalue - P-value: Πιθανότητα να παρατηρηθούν τα τρέχοντα αποτελέσματα αν δεν υπάρχει αυτοσυσχέτιση.")
+print(ljung_box_results1)
+
+print("\nΑποτελέσματα Ελέγχου Ljung-Box για dataset_2:")
+print("Lag - Υστέρηση: Επιδεικνύει τον αριθμό των παρατηρήσεων στο παρελθόν που λαμβάνονται υπόψη για τον έλεγχο.")
+print("lb_stat - Στατιστικό Ελέγχου: Μέτρο που υποδηλώνει την συνολική αυτοσυσχέτιση στις υστερήσεις που εξετάζονται.")
+print("lb_pvalue - P-value: Πιθανότητα να παρατηρηθούν τα τρέχοντα αποτελέσματα αν δεν υπάρχει αυτοσυσχέτιση.")
+print(ljung_box_results2)
+
+lags = np.arange(1, 15)
+ljung_box_results_1 = acorr_ljungbox(dataset_1, lags=lags, return_df=True)
+ljung_box_results_2 = acorr_ljungbox(dataset_2, lags=lags, return_df=True)
+suitable_lag_1 = ljung_box_results_1[ljung_box_results_1['lb_pvalue'] > 0.05]['lb_pvalue'].idxmin()
+suitable_lag_2 = ljung_box_results_2[ljung_box_results_2['lb_pvalue'] > 0.000005]['lb_pvalue'].idxmin()
+print(f"\nΚατάλληλο lag για dataset_1: {suitable_lag_1}")
+print(f"Κατάλληλο lag για dataset_2: {suitable_lag_2}")
+
+
+lags_1 = acf(dataset_1, nlags=20)
+lags_2 = acf(dataset_2, nlags=20)
+critical_lag_1 = next((i for i, x in enumerate(lags_1) if x < 0.2), None)
+critical_lag_2 = next((i for i, x in enumerate(lags_2) if x < 0.2), None)
+print(f"Κατάλληλο lag για dataset_1: {critical_lag_1}")
+print(f"Κατάλληλο lag για dataset_2: {critical_lag_2}")
+
+acf_values_1 = acf(dataset_1, nlags=20)
+acf_values_2 = acf(dataset_2, nlags=20)
+print("ACF values for dataset_1:")
+for i, value in enumerate(acf_values_1):
+    explanation = "indicating no significant autocorrelation." if abs(value) < 0.2 else "indicating significant autocorrelation."
+    print(f"Lag {i}: {value:.4f} - {explanation}")
+print("\nACF values for dataset_2:")
+for i, value in enumerate(acf_values_2):
+    explanation = "indicating no significant autocorrelation." if abs(value) < 0.2 else "indicating significant autocorrelation."
+    print(f"Lag {i}: {value:.4f} - {explanation}")
+
+pacf_values_1 = pacf(dataset_1, nlags=6)
+pacf_values_2 = pacf(dataset_2, nlags=6)
+print("\nPACF values for dataset_1 with explanations:")
+for i, value in enumerate(pacf_values_1):
+    if abs(value) > 0.2:
+        explanation = "indicates a significant partial autocorrelation at this lag."
+    else:
+        explanation = "indicates no significant partial autocorrelation."
+    print(f"Lag {i}: {value:.4f} - {explanation}")
+print("\nPACF values for dataset_2 with explanations:")
+for i, value in enumerate(pacf_values_2):
+    if abs(value) > 0.2:
+        explanation = "indicates a significant partial autocorrelation at this lag."
+    else:
+        explanation = "indicates no significant partial autocorrelation."
+    print(f"Lag {i}: {value:.4f} - {explanation}")
+
+
+adjusted_dataset_1 = dataset_1[:-1]
+cross_correlation = ccf(adjusted_dataset_1, dataset_2, adjusted=True)
+print("\nCross-Correlation values between adjusted Dataset 1 and Dataset 2 with explanations:")
+for lag, value in enumerate(cross_correlation):
+    explanation = ("significant positive correlation." if value > 0.2 else
+                   "significant negative correlation." if value < -0.2 else
+                   "no significant correlation.")
+    print(f"Lag {lag}: {value:.4f} - {explanation}")
+dataset_1 = dataset_1[1:]
+model = sm.OLS(dataset_1, sm.add_constant(dataset_2))
+results = model.fit()
+
+residuals = results.resid
+pacf_resid = pacf(residuals, nlags=10)
+print("\nPACF values for residuals with explanations:")
+for i, value in enumerate(pacf_resid):
+    explanation = "significant partial autocorrelation." if abs(value) > 0.2 else "no significant partial autocorrelation."
+    print(f"Lag {i}: {value:.4f} - {explanation}")
+
+time = np.arange(len(dataset_1))
+model_1 = LinearRegression().fit(time.reshape(-1, 1), dataset_1)
+trend_1 = model_1.predict(time.reshape(-1, 1))
+print("\nTrend analysis for Dataset 1:")
+print(f"Detected slope (trend per time unit): {model_1.coef_[0]}")
+print(f"Intercept (initial value): {model_1.intercept_}")
+
+time = np.arange(len(dataset_2))
+model_2 = LinearRegression().fit(time.reshape(-1, 1), dataset_2)
+trend_2 = model_2.predict(time.reshape(-1, 1))
+print("\nTrend analysis for Dataset 2:")
+print(f"Detected slope (trend per time unit): {model_2.coef_[0]}")
+print(f"Intercept (initial value): {model_2.intercept_}")
+result_1 = seasonal_decompose(dataset_1, model='additive', period=11)
+result_2 = seasonal_decompose(dataset_2, model='additive', period=11)
+
+seasonal_1 = result_1.seasonal
+cyclic_1 = result_1.trend
+seasonal_2 = result_2.seasonal
+cyclic_2 = result_2.trend
+print("\nSeasonal components for Dataset 1:")
+print(seasonal_1)
+print("\nCyclic components for Dataset 1:")
+print(cyclic_1)
+print("\nSeasonal components for Dataset 2:")
+print(seasonal_2)
+print("\nCyclic components for Dataset 2:")
+print(cyclic_2)
+
+fig, axs = plt.subplots(4, 1, figsize=(12, 8))
+axs[0].plot(seasonal_1, label='Seasonal Component Dataset 1', color='blue')
+axs[0].legend()
+axs[1].plot(cyclic_1, label='Cyclic Component Dataset 1', color='red')
+axs[1].legend()
+axs[2].plot(seasonal_2, label='Seasonal Component Dataset 2', color='blue')
+axs[2].legend()
+axs[3].plot(cyclic_2, label='Cyclic Component Dataset 2', color='red')
+axs[3].legend()
+plt.tight_layout()
+plt.show()
+
+lb_test_1 = acorr_ljungbox(dataset_1, lags=[20], return_df=True)
+print("\nRandomness check using Ljung-Box Test for Dataset 1:")
+print(lb_test_1)
+print("\nA significant p-value (less than 0.05) indicates non-randomness.")
+
+lb_test_2 = acorr_ljungbox(dataset_2, lags=[20], return_df=True)
+print("\nRandomness check using Ljung-Box Test for Dataset 2:")
+print(lb_test_2)
+print("\nA significant p-value (less than 0.05) indicates non-randomness.")
+
+adf_test = adfuller(dataset_2)
+print(f'\nADF Statistic: {adf_test[0]}')
+print(f'\np-value: {adf_test[1]}')
+for key, value in adf_test[4].items():
+    print('\nCritial Values:')
+    print(f'   {key}, {value}')
+
+p, d, q = 3, 0, 2
+P, D, Q, s = 1, 0, 1, 12
+
+model_sarima = SARIMAX(dataset_2, order=(p, d, q), seasonal_order=(P, D, Q, s))
+results_sarima = model_sarima.fit(maxiter=500, method='bfgs')
+print()
+print(results_sarima.summary())
+results_sarima.plot_diagnostics(figsize=(15, 12))
+plt.show()
+
+epsilon = 1e-5
+dataset_1_noisy = dataset_1 + np.random.normal(0, epsilon, dataset_1.shape)
+dataset_2_noisy = dataset_2 + np.random.normal(0, epsilon, dataset_2.shape)
+df_noisy = pd.DataFrame({
+    'Dataset1': dataset_1_noisy,
+    'Dataset2': dataset_2_noisy
+})
+
+model_var = VAR(df_noisy)
+print(df_noisy.head())
+results_var = model_var.fit(ic='aic')
+print(results_var.summary())
+print()
+
+model = auto_arima(dataset_2, start_p=0, start_q=0, start_P=0, start_Q=0,
+                   max_p=6, max_q=5, max_P=5, max_Q=5, seasonal=True,
+                   stepwise=True, suppress_warnings=True, D=1, m=12,
+                   error_action='ignore', trace=True)
+print(model.summary())
+print()
+fitted_model = model.fit(dataset_2)
+fitted_model.plot_diagnostics(figsize=(15, 12))
+plt.show()
+
+p, d, q = 1, 1, 1
+P, D, Q, s = 1, 0, 1, 12
+
+model_sarima1 = SARIMAX(dataset_1, order=(p, d, q), seasonal_order=(P, D, Q, s))
+results_sarima1 = model_sarima1.fit(maxiter=500, method='bfgs')
+print(results_sarima1.summary())
+results_sarima1.plot_diagnostics(figsize=(15, 11))
+plt.show()
+print()
+model1 = auto_arima(dataset_1, start_p=0, start_q=0, start_P=0, start_Q=0,
+                   max_p=6, max_q=5, max_P=5, max_Q=5, seasonal=True,
+                   stepwise=True, suppress_warnings=True, D=1, m=12,
+                   error_action='ignore', trace=True)
+print(model1.summary())
+fitted_model1 = model1.fit(dataset_1)
+fitted_model1.plot_diagnostics(figsize=(15, 12))
+plt.show()
+
+sarima_predictions_1 = results_sarima1.predict(start=0, end=len(dataset_1)-1)
+print(sarima_predictions_1)
+
+rmse_sarima_1 = root_mean_squared_error(dataset_1, sarima_predictions_1)
+mape_sarima_1 = mean_absolute_percentage_error(dataset_1, sarima_predictions_1)
+print("\nSARIMA Metrics for Dataset 1:")
+print("RMSE:", rmse_sarima_1)
+print("MAPE:", mape_sarima_1)
+
+sarima_predictions_2 = np.cumsum(results_sarima.predict(start=1, end=len(dataset_2)))
+print(sarima_predictions_2)
+sarima_predictions_2_adjusted = sarima_predictions_2[:-1]
+rmse_sarima_2 = root_mean_squared_error(dataset_1[1:], sarima_predictions_2_adjusted)
+print("RMSE SARIMA 2:", rmse_sarima_2)
+
+mape_sarima_2 = mean_absolute_percentage_error(dataset_1[0:], sarima_predictions_2)
+print("\nSARIMA Metrics for Dataset 2:")
+print("RMSE:", rmse_sarima_2)
+print("MAPE:", mape_sarima_2)
+
+model_sarima1 = SARIMAX(dataset_1, order=(1, 0, 1), seasonal_order=(1, 0, 1, 12))
+results_sarima1 = model_sarima1.fit(disp=False)
+forecast_sarima1 = results_sarima1.get_forecast(steps=20)
+mean_forecast_sarima1 = forecast_sarima1.predicted_mean
+conf_int_sarima1 = forecast_sarima1.conf_int()
+
+model_sarima2 = SARIMAX(dataset_2, order=(1, 0, 1), seasonal_order=(1, 0, 1, 12))
+results_sarima2 = model_sarima2.fit(disp=False)
+forecast_sarima2 = results_sarima2.get_forecast(steps=20)
+mean_forecast_sarima2 = forecast_sarima2.predicted_mean
+conf_int_sarima2 = forecast_sarima2.conf_int()
+
+plt.figure(figsize=(10, 5))
+plt.plot(dataset_1, label='Original Dataset 1')
+plt.plot(np.arange(len(dataset_1), len(dataset_1) + 20), mean_forecast_sarima1, label='SARIMAX Forecast')
+plt.fill_between(np.arange(len(dataset_1), len(dataset_1) + 20), conf_int_sarima1[:, 0], conf_int_sarima1[:, 1], color='pink', alpha=0.3)
+plt.title('Forecast with SARIMAX for Dataset 1')
+plt.legend()
+plt.show()
+
+plt.figure(figsize=(10, 5))
+plt.plot(dataset_2, label='Original Dataset 2')
+plt.plot(np.arange(len(dataset_2), len(dataset_2) + 20), mean_forecast_sarima2, label='SARIMAX Forecast')
+plt.fill_between(np.arange(len(dataset_2), len(dataset_2) + 20), conf_int_sarima2[:, 0], conf_int_sarima2[:, 1], color='pink', alpha=0.3)
+plt.title('Forecast with SARIMAX for Dataset 2')
+plt.legend()
+plt.show()
